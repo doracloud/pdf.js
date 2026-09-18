@@ -994,7 +994,7 @@ class CanvasGraphics {
     };
   }
 
-  _createMaskCanvas(opIdx, img) {
+  _createMaskCanvas(opIdx, img, backgroundColor = null) {
     const ctx = this.ctx;
     const { width, height } = img;
     const isPatternFill = this.current.patternFill;
@@ -1014,7 +1014,7 @@ class CanvasGraphics {
       cacheKey = JSON.stringify(
         isPatternFill
           ? currentTransform
-          : [currentTransform.slice(0, 4), fillColor]
+          : [currentTransform.slice(0, 4), fillColor, backgroundColor]
       );
 
       cache = this._cachedBitmapsMap.getOrInsertComputed(mainKey, makeMap);
@@ -1045,6 +1045,19 @@ class CanvasGraphics {
     if (!scaled) {
       maskCanvas = this.canvasFactory.create(width, height);
       putBinaryImageMask(maskCanvas.context, img);
+
+      if (backgroundColor) {
+        // Compose at source resolution. Scaling a transparent mask over a
+        // separately painted background exposes the mask edge as a seam.
+        const maskCtx = maskCanvas.context;
+        maskCtx.globalCompositeOperation = "source-in";
+        maskCtx.fillStyle = fillColor;
+        maskCtx.fillRect(0, 0, width, height);
+        maskCtx.globalCompositeOperation = "destination-over";
+        maskCtx.fillStyle = backgroundColor;
+        maskCtx.fillRect(0, 0, width, height);
+        maskCtx.globalCompositeOperation = "source-over";
+      }
     }
 
     // Create the mask canvas at the size it will be drawn at and also set
@@ -1123,21 +1136,23 @@ class CanvasGraphics {
       // scaled === maskCanvas.canvas and not owned by the bitmap cache.
       this.canvasFactory.destroy(maskCanvas);
     }
-    fillCtx.globalCompositeOperation = "source-in";
+    if (!backgroundColor) {
+      fillCtx.globalCompositeOperation = "source-in";
 
-    const inverse = Util.transform(getCurrentTransformInverse(fillCtx), [
-      1,
-      0,
-      0,
-      1,
-      -offsetX,
-      -offsetY,
-    ]);
-    fillCtx.fillStyle = isPatternFill
-      ? fillColor.getPattern(ctx, this, inverse, PathType.FILL, opIdx)
-      : fillColor;
+      const inverse = Util.transform(getCurrentTransformInverse(fillCtx), [
+        1,
+        0,
+        0,
+        1,
+        -offsetX,
+        -offsetY,
+      ]);
+      fillCtx.fillStyle = isPatternFill
+        ? fillColor.getPattern(ctx, this, inverse, PathType.FILL, opIdx)
+        : fillColor;
 
-    fillCtx.fillRect(0, 0, width, height);
+      fillCtx.fillRect(0, 0, width, height);
+    }
 
     if (cache && !isPatternFill) {
       // The fill canvas is put in the cache associated to the mask image
@@ -3872,35 +3887,16 @@ class CanvasGraphics {
       return;
     }
 
-    const { backgroundColor, backgroundRect, count } = img;
+    const { backgroundColor, count } = img;
     img = this.getObject(opIdx, img.data, img);
     img.count = count;
 
-    const mask = this._createMaskCanvas(opIdx, img);
+    const mask = this._createMaskCanvas(
+      opIdx,
+      img,
+      backgroundColor ? this.#transferColor(backgroundColor) : null
+    );
     const maskCanvas = mask.canvas;
-
-    if (backgroundColor) {
-      const started = this.#beginKnockoutElement(this.current.fillAlpha);
-      const ctx = this.ctx;
-      ctx.save();
-      ctx.fillStyle = this.#transferColor(backgroundColor);
-      const [a, b, c, d] = getCurrentTransform(ctx);
-      if ((b === 0 && c === 0) || (a === 0 && d === 0)) {
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.fillRect(
-          mask.offsetX,
-          mask.offsetY,
-          maskCanvas.width,
-          maskCanvas.height
-        );
-      } else {
-        ctx.fillRect(...backgroundRect);
-      }
-      ctx.restore();
-      this.compose();
-      this.#endKnockoutElement(started);
-    }
-
     const started = this.#beginKnockoutElement(this.current.fillAlpha);
     const ctx = this.ctx;
     ctx.save();

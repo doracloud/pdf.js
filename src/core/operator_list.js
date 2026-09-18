@@ -105,12 +105,6 @@ function optimizeImageMaskWithBackground(context, hasDependency) {
   argsArray[iPaintImageMask][0] = {
     ...image,
     backgroundColor: argsArray[iFirst][0],
-    backgroundRect: [
-      (minX - transform[4]) / transform[0],
-      (minY - transform[5]) / transform[3],
-      (maxX - minX) / transform[0],
-      (maxY - minY) / transform[3],
-    ],
   };
 
   // Keep the foreground color and image-mask operations. Only the matching
