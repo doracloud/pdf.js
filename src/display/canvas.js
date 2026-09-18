@@ -3872,15 +3872,37 @@ class CanvasGraphics {
       return;
     }
 
-    const count = img.count;
+    const { backgroundColor, backgroundRect, count } = img;
     img = this.getObject(opIdx, img.data, img);
     img.count = count;
 
-    const started = this.#beginKnockoutElement(this.current.fillAlpha);
-    const ctx = this.ctx;
     const mask = this._createMaskCanvas(opIdx, img);
     const maskCanvas = mask.canvas;
 
+    if (backgroundColor) {
+      const started = this.#beginKnockoutElement(this.current.fillAlpha);
+      const ctx = this.ctx;
+      ctx.save();
+      ctx.fillStyle = this.#transferColor(backgroundColor);
+      const [a, b, c, d] = getCurrentTransform(ctx);
+      if ((b === 0 && c === 0) || (a === 0 && d === 0)) {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.fillRect(
+          mask.offsetX,
+          mask.offsetY,
+          maskCanvas.width,
+          maskCanvas.height
+        );
+      } else {
+        ctx.fillRect(...backgroundRect);
+      }
+      ctx.restore();
+      this.compose();
+      this.#endKnockoutElement(started);
+    }
+
+    const started = this.#beginKnockoutElement(this.current.fillAlpha);
+    const ctx = this.ctx;
     ctx.save();
     // The mask is drawn with the transform applied. Reset the current
     // transform to draw to the identity.
