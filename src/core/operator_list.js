@@ -38,6 +38,113 @@ function addState(parentState, pattern, checkFn, iterateFn, processFn) {
 
 const InitialState = [];
 
+function optimizeImageMaskWithBackground(context, hasDependency) {
+  const { fnArray, argsArray } = context;
+  const iFirst = context.iCurr - (hasDependency ? 7 : 6);
+  const [, [path], minMax] = argsArray[iFirst + 1];
+  const transform = argsArray[iFirst + 4];
+  const iPaintImageMask = iFirst + (hasDependency ? 6 : 5);
+
+  if (
+    !path ||
+    !minMax ||
+    argsArray[iFirst + 1][0] !== OPS.fill ||
+    path.length !== 13 ||
+    path[0] !== DrawOPS.moveTo ||
+    path[3] !== DrawOPS.lineTo ||
+    path[6] !== DrawOPS.lineTo ||
+    path[9] !== DrawOPS.lineTo ||
+    path[12] !== DrawOPS.closePath ||
+    transform[1] !== 0 ||
+    transform[2] !== 0 ||
+    transform[0] <= 0 ||
+    transform[3] <= 0
+  ) {
+    return iFirst + 1;
+  }
+
+  const [minX, minY, maxX, maxY] = minMax;
+  const corners = new Set(),
+    points = [];
+  for (let i = 1; i < 12; i += 3) {
+    const x = path[i],
+      y = path[i + 1];
+    if ((x !== minX && x !== maxX) || (y !== minY && y !== maxY)) {
+      return iFirst + 1;
+    }
+    corners.add(`${x},${y}`);
+    points.push([x, y]);
+  }
+  if (corners.size !== 4) {
+    return iFirst + 1;
+  }
+  for (let i = 0; i < points.length; i++) {
+    const [x1, y1] = points[i],
+      [x2, y2] = points[(i + 1) % points.length];
+    if ((x1 === x2) === (y1 === y2)) {
+      return iFirst + 1;
+    }
+  }
+
+  const MAX_EDGE_GAP = 0.1;
+  const imageBounds = [
+    transform[4],
+    transform[5],
+    transform[4] + transform[0],
+    transform[5] + transform[3],
+  ];
+  if (
+    minMax.some(
+      (value, index) => Math.abs(value - imageBounds[index]) > MAX_EDGE_GAP
+    )
+  ) {
+    return iFirst + 1;
+  }
+
+  const image = argsArray[iPaintImageMask][0];
+  argsArray[iPaintImageMask][0] = {
+    ...image,
+    backgroundColor: argsArray[iFirst][0],
+    backgroundRect: [
+      (minX - transform[4]) / transform[0],
+      (minY - transform[5]) / transform[3],
+      (maxX - minX) / transform[0],
+      (maxY - minY) / transform[3],
+    ],
+  };
+
+  // Keep the foreground color and image-mask operations. Only the matching
+  // background rectangle is folded into the image-mask paint operation.
+  fnArray.splice(iFirst, 2);
+  argsArray.splice(iFirst, 2);
+  return iFirst + 1;
+}
+
+// Some scanned PDFs paint a background rectangle immediately before each
+// image-mask strip. Canvas anti-aliases the rectangle edges, while image-mask
+// edges are snapped to device pixels, which leaves seams between strips.
+for (const hasDependency of [false, true]) {
+  const pattern = [
+    OPS.setFillRGBColor,
+    OPS.constructPath,
+    OPS.setFillRGBColor,
+    OPS.save,
+    OPS.transform,
+  ];
+  if (hasDependency) {
+    pattern.push(OPS.dependency);
+  }
+  pattern.push(OPS.paintImageMaskXObject, OPS.restore);
+
+  addState(
+    InitialState,
+    pattern,
+    null,
+    () => false,
+    context => optimizeImageMaskWithBackground(context, hasDependency)
+  );
+}
+
 // This replaces (save, transform, paintInlineImageXObject, restore)+
 // sequences with one |paintInlineImageXObjectGroup| operation.
 addState(

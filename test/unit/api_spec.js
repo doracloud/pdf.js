@@ -5514,6 +5514,55 @@ have written that much by now. So, here’s to squashing bugs.`);
       await loadingTask.destroy();
     });
 
+    it("does not draw seams between adjacent image-mask strips", async function () {
+      const loadingTask = getDocument(
+        buildGetDocumentParams("image_mask_seams.pdf")
+      );
+      const pdfDoc = await loadingTask.promise;
+      const pdfPage = await pdfDoc.getPage(1);
+      const viewport = pdfPage.getViewport({ scale: 2 });
+
+      const { canvasFactory } = pdfDoc;
+      const canvasAndCtx = canvasFactory.create(
+        viewport.width,
+        viewport.height
+      );
+      await pdfPage.render({
+        canvas: canvasAndCtx.canvas,
+        viewport,
+      }).promise;
+
+      const xStart = 124,
+        xEnd = 1066;
+      const { data, width } = canvasAndCtx.context.getImageData(
+        0,
+        0,
+        canvasAndCtx.canvas.width,
+        canvasAndCtx.canvas.height
+      );
+      let maxNonWhitePixels = 0;
+      for (let y = 100; y < canvasAndCtx.canvas.height; y++) {
+        let nonWhitePixels = 0;
+        for (let x = xStart; x < xEnd; x++) {
+          const offset = (y * width + x) * 4;
+          if (
+            data[offset] < 250 ||
+            data[offset + 1] < 250 ||
+            data[offset + 2] < 250
+          ) {
+            nonWhitePixels++;
+          }
+        }
+        maxNonWhitePixels = Math.max(maxNonWhitePixels, nonWhitePixels);
+      }
+
+      expect(maxNonWhitePixels).toBeGreaterThan(10);
+      expect(maxNonWhitePixels).toBeLessThan((xEnd - xStart) * 0.9);
+
+      canvasFactory.destroy(canvasAndCtx);
+      await loadingTask.destroy();
+    });
+
     it("cleans up document resources during rendering of page", async function () {
       const loadingTask = getDocument(tracemonkeyGetDocumentParams);
       const pdfDoc = await loadingTask.promise;
