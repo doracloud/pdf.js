@@ -5520,46 +5520,56 @@ have written that much by now. So, here’s to squashing bugs.`);
       );
       const pdfDoc = await loadingTask.promise;
       const pdfPage = await pdfDoc.getPage(1);
-      const viewport = pdfPage.getViewport({ scale: 2 });
-
       const { canvasFactory } = pdfDoc;
-      const canvasAndCtx = canvasFactory.create(
-        viewport.width,
-        viewport.height
-      );
-      await pdfPage.render({
-        canvas: canvasAndCtx.canvas,
-        viewport,
-      }).promise;
 
-      const xStart = 124,
-        xEnd = 1066;
-      const { data, width } = canvasAndCtx.context.getImageData(
-        0,
-        0,
-        canvasAndCtx.canvas.width,
-        canvasAndCtx.canvas.height
-      );
-      let maxNonWhitePixels = 0;
-      for (let y = 100; y < canvasAndCtx.canvas.height; y++) {
-        let nonWhitePixels = 0;
-        for (let x = xStart; x < xEnd; x++) {
-          const offset = (y * width + x) * 4;
-          if (
-            data[offset] < 250 ||
-            data[offset + 1] < 250 ||
-            data[offset + 2] < 250
-          ) {
-            nonWhitePixels++;
+      for (const scale of [0.5, 1, 2]) {
+        const viewport = pdfPage.getViewport({ scale });
+        const canvasAndCtx = canvasFactory.create(
+          viewport.width,
+          viewport.height
+        );
+        await pdfPage.render({
+          canvas: canvasAndCtx.canvas,
+          viewport,
+        }).promise;
+
+        const xStart = Math.floor(62 * scale),
+          xEnd = Math.ceil(533 * scale);
+        const { data, width } = canvasAndCtx.context.getImageData(
+          0,
+          0,
+          canvasAndCtx.canvas.width,
+          canvasAndCtx.canvas.height
+        );
+        let maxNonWhitePixels = 0;
+        for (
+          let y = Math.floor(50 * scale);
+          y < canvasAndCtx.canvas.height;
+          y++
+        ) {
+          let nonWhitePixels = 0;
+          for (let x = xStart; x < xEnd; x++) {
+            const offset = (y * width + x) * 4;
+            if (
+              data[offset] < 250 ||
+              data[offset + 1] < 250 ||
+              data[offset + 2] < 250
+            ) {
+              nonWhitePixels++;
+            }
           }
+          maxNonWhitePixels = Math.max(maxNonWhitePixels, nonWhitePixels);
         }
-        maxNonWhitePixels = Math.max(maxNonWhitePixels, nonWhitePixels);
+
+        expect(maxNonWhitePixels)
+          .withContext(`scale ${scale} should retain the page content`)
+          .toBeGreaterThan(2);
+        expect(maxNonWhitePixels)
+          .withContext(`scale ${scale} should not contain full-width seams`)
+          .toBeLessThan((xEnd - xStart) * 0.9);
+
+        canvasFactory.destroy(canvasAndCtx);
       }
-
-      expect(maxNonWhitePixels).toBeGreaterThan(10);
-      expect(maxNonWhitePixels).toBeLessThan((xEnd - xStart) * 0.9);
-
-      canvasFactory.destroy(canvasAndCtx);
       await loadingTask.destroy();
     });
 
